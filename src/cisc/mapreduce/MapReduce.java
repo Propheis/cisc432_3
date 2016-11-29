@@ -24,9 +24,16 @@ public class MapReduce {
 
 	public static class TokenizerMapper extends Mapper<Object, Text, Text, IntWritable> {
 		
+		// The dictionary of positive and negative words
 		private static Hashtable<String, Integer> wordSentiments;
 
+		/*
+		 * Initialize the MapReduce job - Loads the word lists into memory
+		 */
 		public TokenizerMapper() {
+			
+			// Temporary hard-coding until I figure out passing these in as program arguments
+			// Both of the file paths are correct ("sentimen") is the username..
 			Path positiveWordPath = new Path("hdfs:/user/sentimen/positive.txt");
 			Path negativeWordPath = new Path("hdfs:/user/sentimen/negative.txt");
 			
@@ -68,7 +75,7 @@ public class MapReduce {
 		}
 
 		/*
-		 * Fetches the sentiment for a given word.
+		 * Fetches the sentiment score for a given word.
 		 * If word not found, returns 0
 		 */
 		private Integer getScore(String word) {
@@ -83,12 +90,19 @@ public class MapReduce {
 			String productId = tokens[1];
 			String[] review = tokens[7].split(" ");
 			
-			int overallSentiment = 0;
+			// Scaling factor for the quality of the reviewer
+			// (high percentage of helpful reviews means this reviewer produces quality reviews.
+			float reviewerQuality = Float.parseFloat(tokens[4]) / Float.parseFloat(tokens[5]) + 1;
+			
+			float overallSentiment = 0;
 
 			for (int i = 0; i < review.length; i++)
 				overallSentiment += getScore(review[i]);
 			
-			context.write(new Text(productId), new IntWritable(overallSentiment));
+			overallSentiment *= reviewerQuality;
+			
+			// Write the sentiment as a value relative to the number of wrods
+			context.write(new Text(productId), new IntWritable(Math.round(overallSentiment / review.length)));
 		} // End map
 } // End TokenizerMapper
 
@@ -97,10 +111,16 @@ public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWr
 	public void reduce(Text key, Iterable<Integer> values, Context context) throws IOException, InterruptedException {
 		HashMap<Text, Integer> map = new HashMap<Text, Integer>();
 		
-		Integer accumulator = 0;
+		Integer accumulator = 0,
+				numValues = 0;
 		
-		for (Integer score : values)
+		for (Integer score : values) {
 			accumulator += score;
+			numValues++;
+		}
+		
+		// Provide sentiment as a relative value to number of reviews
+		accumulator /= numValues;
 		
 		context.write(key, new IntWritable(accumulator));
 	}
@@ -110,14 +130,18 @@ public static class IntSumReducer extends Reducer<Text, IntWritable, Text, IntWr
 public static void main(String[] args) throws Exception {
 	Configuration conf = new Configuration();
 	Job job = Job.getInstance(conf, "Product Sentiment Analysis");
+	
 	job.setJarByClass(MapReduce.class);
 	job.setMapperClass(TokenizerMapper.class);
 	job.setCombinerClass(IntSumReducer.class);
 	job.setReducerClass(IntSumReducer.class);
+	
 	job.setOutputKeyClass(Text.class);
 	job.setOutputValueClass(IntWritable.class);
+	
 	FileInputFormat.addInputPath(job, new Path(args[0]));
 	FileOutputFormat.setOutputPath(job, new Path(args[1]));
+	
 	System.exit(job.waitForCompletion(true) ? 0 : 1);
 	}
 }
