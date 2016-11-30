@@ -65,10 +65,14 @@ public class MapReduce {
 			nLine = negativeWordReader.readLine();
 			
 			while (pLine != null || nLine != null) {
-				if (pLine != null)
+				if (pLine != null) {
 					dict.put(pLine, 1);
-				if (nLine != null)
+					pLine = positiveWordReader.readLine();
+				}
+				if (nLine != null) {
 					dict.put(nLine, -1);
+					nLine = negativeWordReader.readLine();
+				}
 			}
 			
 			return dict;
